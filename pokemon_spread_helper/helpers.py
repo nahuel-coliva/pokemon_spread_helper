@@ -272,6 +272,7 @@ def get_pokemon_stats_cached(pokemon_name):
         ability["ability"]["name"]
         for ability in sorted(data["abilities"], key=lambda entry: entry["slot"])
     ]
+    stats["moves"] = [move["move"]["name"] for move in data["moves"]]
 
     POKEMON_STATS_CACHE[pokemon_name] = stats
     return stats
@@ -990,6 +991,120 @@ def plot_damage_histogram(attacker_set, opponent_team_text):
 
     plt.tight_layout()
     plt.show()
+
+
+# ---------------------------
+# Top attacker helpers
+# ---------------------------
+def maximized_offensive_stat(base_stats, stat_name, ev=32):
+    """Calcola Atk o SpA con EV investiti e natura positiva."""
+    return int(stat_calc(base_stats[stat_name], ev, 31, hp_flag=False) * 1.1)
+
+
+def move_effective_power(move_info, pokemon_types):
+    """Calcola la potenza effettiva della mossa, includendo STAB e multi-hit."""
+    hit_powers = move_info.get("hit_powers") or [move_info["power"]]
+    stab = 1.5 if move_info["type"] in pokemon_types else 1
+    return sum(hit_powers) * stab
+
+
+def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32):
+    """Costruisce righe label/score/category per le mosse fisiche e speciali forti di un Pokemon."""
+    pokemon_data = get_pokemon_stats_cached(pokemon_name)
+    if pokemon_data is None:
+        return []
+
+    max_stats = {
+        "physical": maximized_offensive_stat(pokemon_data, "attack", ev=ev),
+        "special": maximized_offensive_stat(pokemon_data, "special-attack", ev=ev),
+    }
+
+    rows = []
+    for move_name in pokemon_data.get("moves", []):
+        move_info = get_move_data_cached(move_name)
+        if move_info is None or move_info["power"] is None:
+            continue
+
+        category = move_info["damage_class"]
+        if category not in max_stats:
+            continue
+
+        effective_power = move_effective_power(move_info, pokemon_data["types"])
+        if effective_power < min_effective_power:
+            continue
+
+        rows.append({
+            "label": f"{pokemon_name} - {move_name.replace('-', ' ')}",
+            "score": max_stats[category] * effective_power,
+            "category": category,
+        })
+
+    return rows
+
+
+def build_top_attack_rows(pokemon_names, min_effective_power=120, ev=32):
+    """Aggrega le righe di attacco forte per una lista di Pokemon."""
+    rows = []
+    for pokemon_name in pokemon_names:
+        rows.extend(build_pokemon_attack_rows(
+            pokemon_name,
+            min_effective_power=min_effective_power,
+            ev=ev,
+        ))
+    return rows
+
+
+def top_fraction_rows(rows, fraction=0.10, min_rows=1):
+    """Ordina per score e restituisce il top fraction, garantendo almeno min_rows righe."""
+    rows = sorted(rows, key=lambda row: row["score"], reverse=True)
+    if not rows:
+        return []
+
+    n_rows = max(min_rows, math.ceil(len(rows) * fraction))
+    return rows[:n_rows]
+
+
+def split_top_attack_rows(rows, fraction=0.10, min_rows=1):
+    """Restituisce top fisico e top speciale separati."""
+    return {
+        "physical": top_fraction_rows(
+            [row for row in rows if row["category"] == "physical"],
+            fraction=fraction,
+            min_rows=min_rows,
+        ),
+        "special": top_fraction_rows(
+            [row for row in rows if row["category"] == "special"],
+            fraction=fraction,
+            min_rows=min_rows,
+        ),
+    }
+
+
+def plot_top_attack_rows(rows, fraction=0.10, min_rows=1):
+    """Disegna due grafici orizzontali: top attacchi fisici e top attacchi speciali."""
+    top_rows = split_top_attack_rows(rows, fraction=fraction, min_rows=min_rows)
+
+    for category, title in [
+        ("physical", "Top physical attacks"),
+        ("special", "Top special attacks"),
+    ]:
+        category_rows = list(reversed(top_rows[category]))
+        if not category_rows:
+            print(f"Nessuna mossa {category} sopra la soglia.")
+            continue
+
+        labels = [row["label"] for row in category_rows]
+        scores = [row["score"] for row in category_rows]
+
+        plt.figure(figsize=(10, max(4, 0.35 * len(category_rows))))
+        plt.barh(labels, scores)
+        plt.xlabel("Score")
+        plt.title(title)
+        plt.grid(axis="x", alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+    return top_rows
 
 
 __all__ = [name for name in globals() if not name.startswith("_")]
