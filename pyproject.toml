@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pokemon-spread-helper"
+version = "0.1.0"
+description = "Reusable helpers for Pokemon spread and damage notebooks"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "requests",
+]
+
+[tool.setuptools.packages.find]
+include = ["pokemon_spread_helper*"]

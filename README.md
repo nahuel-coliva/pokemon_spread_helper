@@ -4,9 +4,10 @@ Helper riusabili per notebook di spread e damage calc Pokemon.
 
 ## Uso nei notebook
 
-Tieni i notebook nella root del repository e importa gli helper condivisi:
+Installa il package e importa gli helper condivisi:
 
 ```python
+%pip install -q git+https://github.com/nahuel-coliva/pokemon_spread_helper.git
 from pokemon_spread_helper import *
 ```
 
