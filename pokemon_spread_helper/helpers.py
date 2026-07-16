@@ -2,8 +2,10 @@
 
 # Libraries
 
+import html
 import math
 import re
+from html.parser import HTMLParser
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
@@ -35,6 +37,28 @@ def normalize_pokemon_name(name):
         .replace("'", "")
     )
     return POKEMON_NAME_MAP.get(name, name)
+
+
+def champions_display_name_to_showdown(name, image_src=""):
+    """Converte i nomi Serebii Champions nello stile usato dagli helper."""
+    name = " ".join(html.unescape(name).split())
+
+    if name.startswith("Mega "):
+        base_name = name.removeprefix("Mega ")
+        for suffix in [" X", " Y"]:
+            if base_name.endswith(suffix):
+                return f"{base_name[:-2]}-Mega-{suffix.strip()}"
+        return f"{base_name}-Mega"
+
+    if re.search(r"-a\.png$", image_src):
+        return f"{name}-Alola"
+    if re.search(r"-h\.png$", image_src):
+        return f"{name}-Hisui"
+
+    if name == "Basculegion":
+        return "Basculegion (M)"
+
+    return name
 
 
 def is_mega_pokemon(pokemon_name):
@@ -993,6 +1017,64 @@ def plot_damage_histogram(attacker_set, opponent_team_text):
     plt.show()
 
 
+
+SEREBII_CHAMPIONS_AVAILABLE_POKEMON_URL = "https://www.serebii.net/pokemonchampions/pokemon.shtml"
+SEREBII_REGULATION_MB_URL = "https://www.serebii.net/pokemonchampions/rankedbattle/regulationm-b.shtml"
+
+
+class _SerebiiChampionsPokemonParser(HTMLParser):
+    """Estrae coppie nome/sprite dalla tabella Pokemon Champions di Serebii."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self._current_image_src = ""
+        self._current_name = ""
+        self._capture_name = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+
+        if tag == "img" and "/pokemonhome/pokemon/small/" in attrs.get("src", ""):
+            self._current_image_src = attrs["src"]
+
+        if tag == "a" and re.match(r"^/pokedex-champions/[^/]+/$", attrs.get("href", "")):
+            self._capture_name = True
+            self._current_name = ""
+
+    def handle_data(self, data):
+        if self._capture_name:
+            self._current_name += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._capture_name:
+            display_name = " ".join(html.unescape(self._current_name).split())
+            if display_name:
+                self.rows.append((display_name, self._current_image_src))
+            self._capture_name = False
+            self._current_name = ""
+
+
+def fetch_serebii_champions_pokemon(url=SEREBII_CHAMPIONS_AVAILABLE_POKEMON_URL):
+    """Recupera da Serebii la lista dei Pokemon disponibili in Pokemon Champions."""
+    response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+    response.raise_for_status()
+
+    parser = _SerebiiChampionsPokemonParser()
+    parser.feed(response.text)
+
+    names = [
+        champions_display_name_to_showdown(display_name, image_src=image_src)
+        for display_name, image_src in parser.rows
+    ]
+    return list(dict.fromkeys(names))
+
+
+def fetch_regulation_mb_pokemon():
+    """Alias esplicito per la lista Pokemon legale della Regulation M-B."""
+    return fetch_serebii_champions_pokemon()
+
+
 # ---------------------------
 # Top attacker helpers
 # ---------------------------
@@ -1008,8 +1090,18 @@ def move_effective_power(move_info, pokemon_types):
     return sum(hit_powers) * stab
 
 
-def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32):
-    """Costruisce righe label/score/category per le mosse fisiche e speciali forti di un Pokemon."""
+def move_neutral_damage(move_info, pokemon_types, attack_stat, defense_stat=120):
+    """Stima il danno contro un target neutro con la difesa indicata."""
+    hit_powers = move_info.get("hit_powers") or [move_info["power"]]
+    stab = move_info["type"] in pokemon_types
+    return sum(
+        dmg_calc_adv(attack_stat, hit_power, defense_stat, stab)
+        for hit_power in hit_powers
+    )
+
+
+def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, target_defense=120):
+    """Costruisce righe label/damage/category per le mosse fisiche e speciali forti di un Pokemon."""
     pokemon_data = get_pokemon_stats_cached(pokemon_name)
     if pokemon_data is None:
         return []
@@ -1035,14 +1127,19 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32):
 
         rows.append({
             "label": f"{pokemon_name} - {move_name.replace('-', ' ')}",
-            "score": max_stats[category] * effective_power,
+            "damage": move_neutral_damage(
+                move_info,
+                pokemon_data["types"],
+                max_stats[category],
+                defense_stat=target_defense,
+            ),
             "category": category,
         })
 
     return rows
 
 
-def build_top_attack_rows(pokemon_names, min_effective_power=120, ev=32):
+def build_top_attack_rows(pokemon_names, min_effective_power=120, ev=32, target_defense=120):
     """Aggrega le righe di attacco forte per una lista di Pokemon."""
     rows = []
     for pokemon_name in pokemon_names:
@@ -1050,13 +1147,14 @@ def build_top_attack_rows(pokemon_names, min_effective_power=120, ev=32):
             pokemon_name,
             min_effective_power=min_effective_power,
             ev=ev,
+            target_defense=target_defense,
         ))
     return rows
 
 
 def top_fraction_rows(rows, fraction=0.10, min_rows=1):
-    """Ordina per score e restituisce il top fraction, garantendo almeno min_rows righe."""
-    rows = sorted(rows, key=lambda row: row["score"], reverse=True)
+    """Ordina per danno e restituisce il top fraction, garantendo almeno min_rows righe."""
+    rows = sorted(rows, key=lambda row: row["damage"], reverse=True)
     if not rows:
         return []
 
@@ -1094,11 +1192,11 @@ def plot_top_attack_rows(rows, fraction=0.10, min_rows=1):
             continue
 
         labels = [row["label"] for row in category_rows]
-        scores = [row["score"] for row in category_rows]
+        damages = [row["damage"] for row in category_rows]
 
         plt.figure(figsize=(10, max(4, 0.35 * len(category_rows))))
-        plt.barh(labels, scores)
-        plt.xlabel("Score")
+        plt.barh(labels, damages)
+        plt.xlabel("Damage vs neutral 120 Def/SpD")
         plt.title(title)
         plt.grid(axis="x", alpha=0.3)
         plt.tight_layout()
