@@ -1083,12 +1083,6 @@ def fetch_regulation_mb_pokemon():
 # ---------------------------
 # Top attacker helpers
 # ---------------------------
-EXCLUDED_TOP_ATTACK_MOVES = {
-    normalize_name(move_name)
-    for move_name in ["self-destruct", "focus-punch", "explosion", "sky attack"]
-}
-
-
 def maximized_offensive_stat(base_stats, stat_name, ev=32):
     """Calcola Atk o SpA con EV investiti e natura positiva."""
     return int(stat_calc(base_stats[stat_name], ev, 31, hp_flag=False) * 1.1)
@@ -1124,10 +1118,14 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
 
     rows = []
     for move_name in pokemon_data.get("moves", []):
-        if normalize_name(move_name) in EXCLUDED_TOP_ATTACK_MOVES:
+        if move_name in ["self-destruct", "focus-punch", "explosion", "sky attack"]:
             continue
         
         move_info = get_move_data_cached(move_name)
+
+        if move_info["power"]==250:
+            input(move_name)
+            input(move_info)
 
         if move_info is None or move_info["power"] is None:
             continue
