@@ -1193,7 +1193,6 @@ def split_top_attack_rows(rows, fraction=0.10, min_rows=1):
 
 def plot_top_attack_rows(rows, fraction=0.10, min_rows=1):
     """Disegna due grafici orizzontali: top attacchi fisici e top attacchi speciali."""
-    input("Partiamo?")
     top_rows = split_top_attack_rows(rows, fraction=fraction, min_rows=min_rows)
 
     for category, title in [
