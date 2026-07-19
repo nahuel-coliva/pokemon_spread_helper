@@ -12,6 +12,9 @@ import requests
 from matplotlib.patches import Patch
 
 
+POKEAPI_GRAPHQL_URL = "https://graphql.pokeapi.co/v1beta2"
+
+
 # ---------------------------
 # Base math helpers
 # ---------------------------
@@ -342,6 +345,46 @@ def get_move_data_cached(move_name):
     return result
 
 
+def move_has_pokeapi_flag(move_name, flag_name):
+    """
+    Verifica via PokeAPI GraphQL se una mossa possiede un flag, per esempio contact.
+    """
+    move_name = normalize_name(move_name)
+    flag_name = normalize_name(flag_name)
+    cache_key = (move_name, flag_name)
+
+    if cache_key in MOVE_FLAG_CACHE:
+        return MOVE_FLAG_CACHE[cache_key]
+
+    query = """
+    query MoveFlag($move: String!, $flag: String!) {
+      moveattributemap(
+        where: {
+          move: {name: {_eq: $move}},
+          moveattribute: {name: {_eq: $flag}}
+        },
+        limit: 1
+      ) {
+        move_id
+      }
+    }
+    """
+    response = requests.post(
+        POKEAPI_GRAPHQL_URL,
+        json={"query": query, "variables": {"move": move_name, "flag": flag_name}},
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    if payload.get("errors"):
+        raise RuntimeError(payload["errors"])
+
+    has_flag = bool(payload["data"]["moveattributemap"])
+    MOVE_FLAG_CACHE[cache_key] = has_flag
+    return has_flag
+
+
 # ---------------------------
 # Battle/damage helpers
 # ---------------------------
@@ -360,8 +403,8 @@ def item_multiplier(move_info, item):
 
 
 def is_contact_move(move_name):
-    """Restituisce True se la mossa e nota come mossa da contatto."""
-    return normalize_name(move_name) in CONTACT_MOVES
+    """Restituisce True se PokeAPI indica la mossa come mossa da contatto."""
+    return move_has_pokeapi_flag(move_name, "contact")
 
 
 def ability_multiplier(move_name, ability):
@@ -743,142 +786,11 @@ MULTI_HIT_MOVES = {
     "water-shuriken": 3,
 }
 
-CONTACT_MOVES = {
-    "acrobatics",
-    "aerial-ace",
-    "aqua-jet",
-    "aqua-step",
-    "assurance",
-    "astonish",
-    "avalanche",
-    "bite",
-    "blaze-kick",
-    "body-slam",
-    "brave-bird",
-    "breakneck-blitz",
-    "brick-break",
-    "bug-bite",
-    "bullet-punch",
-    "ceaseless-edge",
-    "circle-throw",
-    "close-combat",
-    "collision-course",
-    "counter",
-    "covet",
-    "crabhammer",
-    "cross-chop",
-    "crunch",
-    "darkest-lariat",
-    "dig",
-    "dire-claw",
-    "double-edge",
-    "double-hit",
-    "double-iron-bash",
-    "dragon-claw",
-    "dragon-darts",
-    "dragon-hammer",
-    "drain-punch",
-    "drill-peck",
-    "dual-wingbeat",
-    "endeavor",
-    "extreme-speed",
-    "facade",
-    "fake-out",
-    "false-surrender",
-    "feint",
-    "fire-fang",
-    "fire-punch",
-    "first-impression",
-    "fishious-rend",
-    "flame-charge",
-    "flare-blitz",
-    "flip-turn",
-    "flying-press",
-    "focus-punch",
-    "foul-play",
-    "frustration",
-    "giga-impact",
-    "grass-knot",
-    "grassy-glide",
-    "gunk-shot",
-    "headlong-rush",
-    "head-smash",
-    "headbutt",
-    "heavy-slam",
-    "high-horsepower",
-    "high-jump-kick",
-    "horn-leech",
-    "ice-fang",
-    "ice-hammer",
-    "ice-punch",
-    "iron-head",
-    "jaw-lock",
-    "jump-kick",
-    "knock-off",
-    "kowtow-cleave",
-    "lash-out",
-    "last-respects",
-    "leaf-blade",
-    "leech-life",
-    "liquidation",
-    "low-kick",
-    "lunge",
-    "mach-punch",
-    "megahorn",
-    "meteor-assault",
-    "multi-attack",
-    "nuzzle",
-    "outrage",
-    "payback",
-    "play-rough",
-    "poison-jab",
-    "power-trip",
-    "power-whip",
-    "psychic-fangs",
-    "quick-attack",
-    "rage-fist",
-    "rapid-spin",
-    "retaliate",
-    "return",
-    "reversal",
-    "rock-smash",
-    "sacred-sword",
-    "scale-shot",
-    "scratch",
-    "shadow-claw",
-    "shadow-force",
-    "shadow-sneak",
-    "slash",
-    "smart-strike",
-    "spark",
-    "spirit-break",
-    "stomping-tantrum",
-    "sucker-punch",
-    "superpower",
-    "surging-strikes",
-    "tackle",
-    "tail-slap",
-    "take-down",
-    "throat-chop",
-    "thunder-fang",
-    "thunder-punch",
-    "trailblaze",
-    "triple-axel",
-    "u-turn",
-    "volt-switch",
-    "waterfall",
-    "wave-crash",
-    "wicked-blow",
-    "wild-charge",
-    "wood-hammer",
-    "x-scissor",
-    "zen-headbutt",
-}
-
 STAT_LIST = ["hp", "attack", "defense", "special-attack", "special-defense", "speed"]
 
 POKEMON_STATS_CACHE = {}
 POKEMON_MOVE_CACHE = {}
+MOVE_FLAG_CACHE = {}
 
 
 # ---------------------------
@@ -1090,21 +1002,33 @@ def maximized_offensive_stat(base_stats, stat_name, ev=32):
     return int(stat_calc(base_stats[stat_name], ev, 31, hp_flag=False) * 1.1)
 
 
-def move_effective_power(move_info, pokemon_types):
-    """Calcola la potenza effettiva della mossa, includendo STAB e multi-hit."""
+def move_effective_power(move_info, move_name, pokemon_name, pokemon_types, ability=None):
+    """Calcola una potenza effettiva coerente con i modificatori del damage calculator."""
+    move_info = adjusted_move_info(move_info, move_name, pokemon_name)
     hit_powers = move_info.get("hit_powers") or [move_info["power"]]
-    stab = 1.5 if move_info["type"] in pokemon_types else 1
-    return sum(hit_powers) * stab
+    stab, weather = offensive_modifiers(move_info, move_name, pokemon_name, pokemon_types)
+    spread = move_info["targets"] - 1
+
+    effective_power = sum(hit_powers)
+    effective_power *= 1 + 0.5 * stab
+    effective_power *= ability_multiplier(move_name, ability)
+    effective_power *= 1.5 if move_info["crit_rate"] == 6 else 1
+    effective_power *= 1 - 0.25 * spread
+    effective_power *= 1 + weather
+
+    return effective_power
 
 
-def move_neutral_damage(move_info, pokemon_types, attack_stat, defense_stat=120):
-    """Stima il danno contro un target neutro con la difesa indicata."""
-    hit_powers = move_info.get("hit_powers") or [move_info["power"]]
-    stab = move_info["type"] in pokemon_types
-    return sum(
-        dmg_calc_adv(attack_stat, hit_power, defense_stat, stab)
-        for hit_power in hit_powers
-    )
+def top_attacker_stats(pokemon_data, ev=32):
+    """Costruisce statistiche offensive massimizzate nel formato atteso dal damage calculator."""
+    return [
+        0,
+        maximized_offensive_stat(pokemon_data, "attack", ev=ev),
+        0,
+        maximized_offensive_stat(pokemon_data, "special-attack", ev=ev),
+        0,
+        0,
+    ]
 
 
 def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, target_defense=120):
@@ -1113,10 +1037,8 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
     if pokemon_data is None:
         return []
 
-    max_stats = {
-        "physical": maximized_offensive_stat(pokemon_data, "attack", ev=ev),
-        "special": maximized_offensive_stat(pokemon_data, "special-attack", ev=ev),
-    }
+    attacker_stats = top_attacker_stats(pokemon_data, ev=ev)
+    attacker_ability = resolve_pokemon_ability({"name": pokemon_name, "ability": None}, pokemon_data)
 
     rows = []
     for move_name in pokemon_data.get("moves", []):
@@ -1128,23 +1050,37 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
         if move_info is None or move_info["power"] is None:
             continue
 
-        category = move_info["damage_class"]
-        if category not in max_stats:
+        if move_info["damage_class"] not in ["physical", "special"]:
             continue
 
-        effective_power = move_effective_power(move_info, pokemon_data["types"])
+        effective_power = move_effective_power(
+            move_info,
+            move_name,
+            pokemon_name,
+            pokemon_data["types"],
+            ability=attacker_ability,
+        )
         if effective_power < min_effective_power:
+            continue
+
+        damage_result = calculate_move_damage(
+            attacker_name=pokemon_name,
+            attacker_stats=attacker_stats,
+            attacker_types=pokemon_data["types"],
+            attacker_item=None,
+            attacker_ability=attacker_ability,
+            move_name=move_name,
+            defender_types=[],
+            defense=target_defense,
+            spdef=target_defense,
+        )
+        if damage_result is None:
             continue
 
         rows.append({
             "label": f"{pokemon_name} - {move_name.replace('-', ' ')}",
-            "damage": move_neutral_damage(
-                move_info,
-                pokemon_data["types"],
-                max_stats[category],
-                defense_stat=target_defense,
-            ),
-            "category": category,
+            "damage": damage_result["damage"],
+            "category": damage_result["class"],
         })
 
     return rows
