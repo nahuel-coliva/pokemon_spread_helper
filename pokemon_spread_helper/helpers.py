@@ -1117,6 +1117,11 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
             continue
         
         move_info = get_move_data_cached(move_name)
+
+        if move_info["power"]==250:
+            input(move_name)
+            input(move_info)
+
         if move_info is None or move_info["power"] is None:
             continue
 
