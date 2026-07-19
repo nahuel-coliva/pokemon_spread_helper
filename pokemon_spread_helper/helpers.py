@@ -632,8 +632,6 @@ POKEMON_NAME_MAP = {
     "squawkabilly-white": "squawkabilly-white-plumage",
     "basculin-white-striped": "basculin-white-striped-form",
     "toxtricity-low-key": "toxtricity-low-key-form",
-    "maushold-family-of-four": "maushold-family-of-four",
-    "maushold-family-of-three": "maushold-family-of-three",
     "dudunsparce-three-segment": "dudunsparce-three-segment-form",
     "dudunsparce-two-segment": "dudunsparce-two-segment-form",
     "tauros-paldea-combat": "tauros-paldea-combat-breed",
@@ -650,7 +648,11 @@ POKEMON_NAME_MAP = {
     "mr.-rime": "mr-rime",
     "morpeko": "morpeko-full-belly",
     "meowstic": "meowstic-male",
-    "meowstic-mega": "meowstic-male-mega"
+    "meowstic-mega": "meowstic-male-mega",
+    "palafin": "palafin-hero",
+    "aegislash": "aegislash-blade",
+    "maushold": "maushold-family-of-four",
+    "lycanroc": "lycanroc-dusk",
 }
 
 ITEM_DAMAGE_MULTIPLIERS = {
@@ -1118,14 +1120,10 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
 
     rows = []
     for move_name in pokemon_data.get("moves", []):
-        if move_name in ["self-destruct", "focus-punch", "explosion", "sky attack"]:
+        if move_name in ["self-destruct", "focus-punch", "explosion", "sky-attack", "giga-impact", "hyper-beam"]:
             continue
         
         move_info = get_move_data_cached(move_name)
-
-        if move_info["power"]==250:
-            input(move_name)
-            input(move_info)
 
         if move_info is None or move_info["power"] is None:
             continue
