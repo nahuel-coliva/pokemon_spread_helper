@@ -646,6 +646,11 @@ POKEMON_NAME_MAP = {
     "shaymin-sky": "shaymin-sky-forme",
     "keldeo-resolute": "keldeo-resolute-form",
     "floette-mega-(f)": "floette-mega",
+    "pyroar": "pyroar-male",
+    "mr.-rime": "mr-rime",
+    "morpeko": "morpeko-full-belly",
+    "meowstic": "meowstic-male",
+    "meowstic-mega": "meowstic-male-mega"
 }
 
 ITEM_DAMAGE_MULTIPLIERS = {
