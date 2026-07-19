@@ -1113,6 +1113,9 @@ def build_pokemon_attack_rows(pokemon_name, min_effective_power=120, ev=32, targ
 
     rows = []
     for move_name in pokemon_data.get("moves", []):
+        if move_name in ["self-destruct", "focus-punch", "explosion", "sky attack"]:
+            continue
+        
         move_info = get_move_data_cached(move_name)
         if move_info is None or move_info["power"] is None:
             continue
